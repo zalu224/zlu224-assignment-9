@@ -21,59 +21,63 @@ class MLP:
         self.b1 = np.zeros((1, hidden_dim))
         self.W2 = np.random.randn(hidden_dim, output_dim) * 0.1
         self.b2 = np.zeros((1, output_dim))
+        
+        # For storing activations and gradients
+        self.hidden_features = None
+        self.gradients = None
 
-        #store activations and gradients for visualization
-        self.activation_features = None
-        self.gradients = {}
-
-    def activation(self, x):
+    def activation(self, x): # based on the readme recommendations
         if self.activation_fn == 'tanh':
             return np.tanh(x)
         elif self.activation_fn == 'relu':
             return np.maximum(0, x)
         elif self.activation_fn == 'sigmoid':
             return 1 / (1 + np.exp(-x))
-    
+            
     def activation_derivative(self, x):
         if self.activation_fn == 'tanh':
             return 1 - np.tanh(x)**2
         elif self.activation_fn == 'relu':
             return (x > 0).astype(float)
         elif self.activation_fn == 'sigmoid':
-            sx = 1 / (1 + np.exp(-x))
-            return sx * (1 - sx)
+            sig = 1 / (1 + np.exp(-x))
+            return sig * (1 - sig)
         
     def forward(self, X):
         # TODO: forward pass, apply layers to input X
-        #first layer
+        # TODO: store activations for visualization
         self.z1 = np.dot(X, self.W1) + self.b1
         self.a1 = self.activation(self.z1)
-
-        #second layer
+        
         self.z2 = np.dot(self.a1, self.W2) + self.b2
-        self.out = np.tanh(self.z2)
-        # TODO: store activations for visualization
-        self.hidden_features = self.a1
+        out = np.tanh(self.z2)
 
-        # out = ...
-        return self.out
+        self.hidden_features = self.a1
+        return out
 
     def backward(self, X, y):
+         
         m = X.shape[0]
+        
         # TODO: compute gradients using chain rule
-        # Output layer gradients
-        delta2 = (self.out - y) * (1 - self.out**2)  # derivative of tanh
-        dW2 = np.dot(self.a1.T, delta2)
-        db2 = np.sum(delta2, axis=0, keepdims=True)
-
+         # Chain rule
+        delta2 = (self.forward(X) - y) * (1 - self.forward(X)**2)
+        dW2 = np.dot(self.a1.T, delta2) / m
+        db2 = np.sum(delta2, axis=0, keepdims=True) / m
+        
         # TODO: update weights with gradient descent
-         # Hidden layer gradients
+
         delta1 = np.dot(delta2, self.W2.T) * self.activation_derivative(self.z1)
-        dW1 = np.dot(X.T, delta1)
-        db1 = np.sum(delta1, axis=0, keepdims=True)
+        dW1 = np.dot(X.T, delta1) / m
+        db1 = np.sum(delta1, axis=0, keepdims=True) / m
 
         # TODO: store gradients for visualization
-        # Store gradients for visualization
+        # Weight update 
+        self.W1 -= self.lr * dW1
+        self.b1 -= self.lr * db1
+        self.W2 -= self.lr * dW2
+        self.b2 -= self.lr * db2
+
         self.gradients = {
             'W1': dW1,
             'W2': dW2,
@@ -81,14 +85,6 @@ class MLP:
             'b2': db2
         }
         
-        # Update weights
-        self.W1 -= self.lr * dW1
-        self.b1 -= self.lr * db1
-        self.W2 -= self.lr * dW2
-        self.b2 -= self.lr * db2
-
-        # pass
-
 def generate_data(n_samples=100):
     np.random.seed(0)
     # Generate input
@@ -112,83 +108,80 @@ def update(frame, mlp, ax_input, ax_hidden, ax_gradient, X, y):
     # TODO: Plot hidden features
     hidden_features = mlp.hidden_features
     ax_hidden.scatter(hidden_features[:, 0], hidden_features[:, 1], hidden_features[:, 2], c=y.ravel(), cmap='bwr', alpha=0.7)
+    ax_hidden.set_xlim([-1, 1])
+    ax_hidden.set_ylim([-1, 1])
+    ax_hidden.set_zlim([-1, 1])
 
     # TODO: Hyperplane visualization in the hidden space
-    xx, yy = np.meshgrid(np.linspace(-1, 1, 20), np.linspace(-1, 1, 20))
-    zz = -(mlp.W2[0] * xx + mlp.W2[1] * yy + mlp.b2) / (mlp.W2[2] + 1e-10)
-    ax_hidden.plot_surface(xx, yy, zz, alpha=0.2, color='gray')
-    
-    # Set hidden space view angle to match example
-    ax_hidden.view_init(elev=20, azim=-45)
+    xx = np.linspace(-1, 1, 20)
+    yy = np.linspace(-1, 1, 20)
+    zz = np.linspace(-1, 1, 20)
+    XX, YY, ZZ = np.meshgrid(xx, yy, zz)
+    hidden_points = np.column_stack((XX.ravel(), YY.ravel(), ZZ.ravel()))
+    hyperplane = np.dot(hidden_points, mlp.W2) + mlp.b2
 
+
+    hyperplane = hyperplane.reshape(XX.shape)
+    for i in range(XX.shape[2]):
+        mask = np.abs(hyperplane[:,:,i]) < 0.1
+        if mask.any():
+            ax_hidden.scatter(XX[:,:,i][mask], YY[:,:,i][mask], ZZ[:,:,i][mask], 
+                            color='lightgray', alpha=0.2, s=1)
+            
     # TODO: Distorted input space transformed by the hidden layer
+    x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
+    y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
+    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 20),
+                        np.linspace(y_min, y_max, 20))
+    grid_points = np.column_stack((xx.ravel(), yy.ravel()))
+    transformed = mlp.activation(np.dot(grid_points, mlp.W1) + mlp.b1)
+    ax_hidden.scatter(transformed[:,0], transformed[:,1], transformed[:,2], 
+                     alpha=0.1, color='gray')
 
     # TODO: Plot input layer decision boundary
-    x_min, x_max = -3, 3
-    y_min, y_max = -2, 2
     xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
                         np.linspace(y_min, y_max, 100))
-    Z = np.c_[xx.ravel(), yy.ravel()]
-    Z_pred = mlp.forward(Z)
-    Z_pred = Z_pred.reshape(xx.shape)
-    
-    ax_input.contourf(xx, yy, Z_pred, levels=20, cmap='bwr', alpha=0.3)
-    ax_input.scatter(X[:, 0], X[:, 1], c=y.ravel(), cmap='bwr', edgecolor='black')
-    
-    # Set input space limits to match example
-    ax_input.set_xlim([x_min, x_max])
-    ax_input.set_ylim([y_min, y_max])
+    Z = mlp.forward(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    ax_input.contourf(xx, yy, Z, cmap='RdBu', alpha=0.3)
+    ax_input.scatter(X[:, 0], X[:, 1], c=y.ravel(), cmap='bwr')
 
     # TODO: Visualize features and gradients as circles and edges 
     # The edge thickness visually represents the magnitude of the gradient
-    pos = {
+    nodes_pos = {
         'x1': (0.0, 0.0),
         'x2': (0.0, 1.0),
-        'h1': (0.5, 0.0),
-        'h2': (0.5, 0.5),
-        'h3': (0.5, 1.0),
-        'y': (1.0, 0.5)
+        'h1': (0.4, 0.2),
+        'h2': (0.4, 0.5),
+        'h3': (0.4, 0.8),
+        'y': (0.8, 0.5)
     }
-    
-    # Draw nodes
-    for name, (x, y) in pos.items():
-        circle = Circle((x, y), 0.08, color='blue', fill=True)
+    for name, pos in nodes_pos.items():
+        circle = Circle(pos, 0.05, color='blue', fill=True)
         ax_gradient.add_patch(circle)
-        ax_gradient.text(x-0.03, y-0.03, name, color='white', fontweight='bold')
+        ax_gradient.text(pos[0]-0.02, pos[1]-0.02, name)
+    max_grad = max(np.abs(mlp.gradients['W1']).max(), np.abs(mlp.gradients['W2']).max())
     
-    
-    # Draw edges with gradient-based thickness
-    max_thickness = 2
-    min_thickness = 0.5
-
+    # input to hidden connections
     for i in range(2):
         for j in range(3):
-            # Input to hidden connections
-            start = pos[f'x{i+1}']
-            end = pos[f'h{j+1}']
-            weight = abs(mlp.gradients['W1'][i, j])
-            thickness = max_thickness * weight / np.max(np.abs(mlp.gradients['W1']))
-            ax_gradient.plot([start[0], end[0]], [start[1], end[1]], 
-                           'purple', linewidth=thickness, alpha=0.6)
+            weight = abs(mlp.gradients['W1'][i, j]) / max_grad
+            ax_gradient.plot([nodes_pos[f'x{i+1}'][0], nodes_pos[f'h{j+1}'][0]],
+                           [nodes_pos[f'x{i+1}'][1], nodes_pos[f'h{j+1}'][1]],
+                           'purple', linewidth=weight*3)
     
-    # Hidden to output connections
+    # hidden to output connections
     for i in range(3):
-        start = pos[f'h{i+1}']
-        end = pos['y']
-        weight = abs(mlp.gradients['W2'][i, 0])
-        thickness = min_thickness + (max_thickness - min_thickness) * weight / (np.max(np.abs(mlp.gradients['W2'])) + 1e-10)
-        ax_gradient.plot([start[0], end[0]], [start[1], end[1]], 
-                        color='purple', linewidth=thickness, alpha=0.6)
+        weight = abs(mlp.gradients['W2'][i, 0]) / max_grad
+        ax_gradient.plot([nodes_pos[f'h{i+1}'][0], nodes_pos['y'][0]],
+                        [nodes_pos[f'h{i+1}'][1], nodes_pos['y'][1]],
+                        'purple', linewidth=weight*3)
     
-    # Set titles and labels
-    ax_hidden.set_title(f'Hidden Space at Step {frame*10}')
-    ax_input.set_title(f'Input Space at Step {frame*10}')
-    ax_gradient.set_title(f'Gradients at Step {frame*10}')
-    
-    # Set gradient view limits
-    ax_gradient.set_xlim([-0.1, 1.1])
-    ax_gradient.set_ylim([-0.1, 1.1])
+    ax_gradient.set_xlim([-0.2, 1.0])
+    ax_gradient.set_ylim([-0.2, 1.2])
+    ax_gradient.axis('equal')
     ax_gradient.axis('off')
+
 
 def visualize(activation, lr, step_num):
     X, y = generate_data()

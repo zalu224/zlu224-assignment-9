@@ -11,6 +11,10 @@ install:
 run:
 	FLASK_APP=$(FLASK_APP) FLASK_ENV=development ./$(VENV)/bin/flask run --port 3000
 
+# Run the neural networks script
+run_nn:
+	./$(VENV)/bin/python3 neural_networks.py
+
 # Clean up virtual environment
 clean:
 	rm -rf $(VENV)
